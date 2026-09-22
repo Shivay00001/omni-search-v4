@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-dotenv
+pydantic
+sqlalchemy
+aiosqlite
+beautifulsoup4
+deep-translator
+tenacity
+httpx
+g4f
+google-generativeai
