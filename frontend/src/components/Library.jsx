@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Clock, ChevronRight } from 'lucide-react';
 
-const API_BASE = 'http://127.0.0.1:8089';
+const API_BASE = (typeof window !== 'undefined' && window.__OMNI_API_BASE__) || 'https://omni-api.visionquantech.com';
 
 export default function Library({ onSelectConv }) {
   const [conversations, setConversations] = useState([]);
+  const [backendDown, setBackendDown] = useState(false);
 
   useEffect(() => {
     axios.get(`${API_BASE}/conversations`)
-      .then(res => setConversations(res.data));
+      .then(res => setConversations(res.data))
+      .catch(() => setBackendDown(true));
   }, []);
 
   return (
@@ -38,6 +40,11 @@ export default function Library({ onSelectConv }) {
         {conversations.length === 0 && (
           <div style={{ textAlign: 'center', padding: '100px 0', opacity: 0.5 }}>
             <p>Your research history will appear here.</p>
+            {backendDown && (
+              <p style={{ marginTop: '12px', fontSize: '0.85rem' }}>
+                🌟 Free mode is active — history syncs when the Pro backend goes live.
+              </p>
+            )}
           </div>
         )}
       </div>

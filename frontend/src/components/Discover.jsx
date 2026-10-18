@@ -4,6 +4,16 @@ import { Compass, Sparkles } from 'lucide-react';
 
 const API_BASE = (typeof window !== 'undefined' && window.__OMNI_API_BASE__) || 'https://omni-api.visionquantech.com';
 
+// Fallback trending topics shown when the backend is unreachable (free mode)
+const FALLBACK_TOPICS = [
+  { id: 'f1', category: 'AI', topic: 'DeepSeek V4.1-Flash: cheapest frontier AI for agents' },
+  { id: 'f2', category: 'AI', topic: 'Meta Muse Spark: open-weight trillion-parameter model' },
+  { id: 'f3', category: 'Tech', topic: 'NVIDIA Nemotron 3.5 open release' },
+  { id: 'f4', category: 'India', topic: 'Latest RBI circulars for fintech compliance' },
+  { id: 'f5', category: 'AI', topic: 'Qwen 3.5 Flash: 1M context open model' },
+  { id: 'f6', category: 'Tech', topic: 'VS Code 1.142 new AI features' },
+];
+
 export default function Discover({ onSelectTopic }) {
   const [topics, setTopics] = useState([]);
 
@@ -11,6 +21,10 @@ export default function Discover({ onSelectTopic }) {
     axios.get(`${API_BASE}/discover`)
       .then(res => {
         setTopics(res.data);
+      })
+      .catch(() => {
+        // Free mode: show curated trending topics
+        setTopics(FALLBACK_TOPICS);
       });
   }, []);
 

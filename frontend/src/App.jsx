@@ -71,6 +71,7 @@ function AppContent() {
               conversationId={conversationId} 
               setConversationId={setConversationId}
               setInsights={setInsights}
+              sources={sources}
               setSources={setSources}
               prefillQuery={prefillQuery}
               setPrefillQuery={setPrefillQuery}

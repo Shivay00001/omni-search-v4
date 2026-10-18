@@ -12,6 +12,56 @@ import {
 
 const API_BASE = (typeof window !== 'undefined' && window.__OMNI_API_BASE__) || 'https://omni-api.visionquantech.com';
 
+// 🌟 FREE MODE — keyless providers used when the Render backend is unreachable.
+// Pollinations text API is CORS-enabled and needs no key.
+const FREE_PROVIDERS = [
+  { id: 'pollinations-free', label: '🌟 Free (Pollinations)', note: 'No key needed', available: true },
+];
+const FREE_LANGS = [
+  { code: 'en', name: 'English', native: 'English', flag: '🇺🇸' },
+  { code: 'hi', name: 'Hindi', native: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'es', name: 'Spanish', native: 'Español', flag: '🇪🇸' },
+];
+const FOCUS_PROMPTS = {
+  general: 'Answer clearly and concisely.',
+  academic: 'Answer like a research assistant: be precise, cite studies where relevant, note uncertainties.',
+  news: 'Answer like a news briefing: latest developments first, include dates where known.',
+  code: 'Answer with working code examples where relevant. Use fenced code blocks.',
+};
+
+// Fetch real web sources without any backend: Wikipedia (CORS: origin=*) + DDG instant answers via allorigins
+async function fetchFreeSources(q) {
+  const sources = [];
+  try {
+    const w = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&format=json&origin=*&srlimit=6`);
+    const j = await w.json();
+    (j.query && j.query.search ? j.query.search : []).forEach((r) => {
+      sources.push({
+        title: r.title,
+        url: 'https://en.wikipedia.org/wiki/' + encodeURIComponent(r.title.replace(/ /g, '_')),
+        snippet: String(r.snippet || '').replace(/<[^>]+>/g, ''),
+      });
+    });
+  } catch (e) { /* offline or blocked — continue */ }
+  try {
+    const d = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(
+      `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`
+    ));
+    const j = await d.json();
+    if (j.AbstractURL && j.AbstractText) {
+      sources.unshift({ title: j.Heading || 'Overview', url: j.AbstractURL, snippet: String(j.AbstractText).slice(0, 220) });
+    }
+    (j.RelatedTopics || []).forEach((rt) => {
+      const t = rt.Text || (rt.Topics && rt.Topics[0] && rt.Topics[0].Text);
+      const u = rt.FirstURL || (rt.Topics && rt.Topics[0] && rt.Topics[0].FirstURL);
+      if (t && u && !sources.some((s) => s.url === u)) {
+        sources.push({ title: String(t).slice(0, 90), url: u, snippet: String(t).slice(0, 220) });
+      }
+    });
+  } catch (e) { /* continue with what we have */ }
+  return sources.slice(0, 6);
+}
+
 const FOCUS_MODES = [
   { id: 'general', label: 'General', icon: <Compass size={14} />, emoji: '🌐' },
   { id: 'academic', label: 'Academic', icon: <GraduationCap size={14} />, emoji: '📚' },
@@ -19,7 +69,7 @@ const FOCUS_MODES = [
   { id: 'code', label: 'Code', icon: <Code size={14} />, emoji: '💻' },
 ];
 
-export default function ChatView({ conversationId, setConversationId, setInsights, setSources, prefillQuery, setPrefillQuery }) {
+export default function ChatView({ conversationId, setConversationId, setInsights, sources, setSources, prefillQuery, setPrefillQuery }) {
   const [messages, setMessages] = useState([]);
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -35,6 +85,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
   const [feedbackMap, setFeedbackMap] = useState({});
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [freeMode, setFreeMode] = useState(false); // true when backend unreachable → keyless Pollinations
   const chatEndRef = useRef(null);
   const searchRef = useRef(null);
 
@@ -51,19 +102,28 @@ export default function ChatView({ conversationId, setConversationId, setInsight
       });
   }, []);
 
-  // Fetch AI providers on mount
+  // Probe the backend: if unreachable within 6s, switch to 🌟 FREE MODE (keyless Pollinations)
   useEffect(() => {
-    axios.get(`${API_BASE}/providers`)
-      .then(res => setProviders(res.data))
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    axios.get(`${API_BASE}/providers`, { signal: ctrl.signal, timeout: 6000 })
+      .then(res => {
+        clearTimeout(timer);
+        if (cancelled) return;
+        setProviders(res.data);
+        setFreeMode(false);
+      })
       .catch(() => {
-        // Fallback list if backend unreachable — keyless providers first
-        setProviders([
-          { id: 'pollinations', label: 'Pollinations', note: 'Free, no key', available: true },
-          { id: 'llm7', label: 'LLM7', note: 'Free, no key', available: true },
-          { id: 'g4f-gpt4', label: 'GPT-4 (g4f)', note: 'Free, no key', available: true },
-          { id: 'g4f-gpt35', label: 'GPT-3.5 (g4f)', note: 'Free, no key', available: true },
-        ]);
+        clearTimeout(timer);
+        if (cancelled) return;
+        // Backend down → free mode: works instantly, no key, no signup
+        setFreeMode(true);
+        setProviders(FREE_PROVIDERS);
+        setAiProvider('pollinations-free');
+        setLanguages(FREE_LANGS);
       });
+    return () => { cancelled = true; clearTimeout(timer); ctrl.abort(); };
   }, []);
 
   // Auto-search on prefill from Discover
@@ -97,6 +157,32 @@ export default function ChatView({ conversationId, setConversationId, setInsight
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentSummary, researchSteps]);
 
+  // 🌟 FREE MODE search: browser → Wikipedia/DDG sources → Pollinations AI. No backend, no key.
+  const handleFreeSearch = useCallback(async (userQuery) => {
+    setResearchSteps(['🔍 Gathering web sources…']);
+    const sources = await fetchFreeSources(userQuery);
+    setSources(sources);
+    setResearchSteps([
+      `🔍 Found ${sources.length} web source${sources.length === 1 ? '' : 's'}`,
+      '🤖 Synthesizing answer — Pollinations (free)…',
+    ]);
+    const srcBlock = sources.map((s, i) => `[${i + 1}] ${s.title} — ${s.url}\n${s.snippet}`).join('\n');
+    const langName = (FREE_LANGS.find((l) => l.code === targetLang) || {}).native || targetLang;
+    const prompt = `You are Omni Search, a helpful AI research assistant. ${FOCUS_PROMPTS[focusMode] || FOCUS_PROMPTS.general}\n\nUse the web sources below when relevant and cite them inline like [1], [2]. If the sources don't cover the question, answer from your knowledge and say so briefly.\n\nSOURCES:\n${srcBlock || '(no web sources found)'}\n\nQUESTION: ${userQuery}\n\nRespond in ${langName}. Format: markdown, concise but complete.`;
+    try {
+      const r = await fetch('https://text.pollinations.ai/' + encodeURIComponent(prompt));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const text = await r.text();
+      setActiveProvider('Pollinations (free)');
+      setMessages((prev) => [...prev, { role: 'assistant', content: text }]);
+    } catch (e) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: '⚠️ The free AI engine is temporarily unavailable. Please try again in a moment.' }]);
+    } finally {
+      setIsSearching(false);
+      setResearchSteps([]);
+    }
+  }, [targetLang, focusMode, setSources]);
+
   const handleSearch = useCallback(async (directQuery) => {
     const userQuery = directQuery || query;
     if (!userQuery.trim() || isSearching) return;
@@ -109,6 +195,12 @@ export default function ChatView({ conversationId, setConversationId, setInsight
     setActiveProvider(null);
     
     setMessages(prev => [...prev, { role: 'user', content: userQuery }]);
+
+    // 🌟 FREE MODE: answer directly via Pollinations, no backend needed
+    if (freeMode) {
+      handleFreeSearch(userQuery);
+      return;
+    }
 
     // Parallel fetch for sources sidebar
     axios.get(`${API_BASE}/test_search?q=${encodeURIComponent(userQuery)}`)
@@ -214,10 +306,12 @@ export default function ChatView({ conversationId, setConversationId, setInsight
       setCurrentSummary('');
       setResearchSteps([]);
 
-      // Fetch related questions
-      axios.post(`${API_BASE}/related_questions`, { query: userQuery, context: fullText.slice(0, 500) })
-        .then(res => setRelatedQuestions(res.data))
-        .catch(() => {});
+      // Fetch related questions (backend only)
+      if (!freeMode) {
+        axios.post(`${API_BASE}/related_questions`, { query: userQuery, context: fullText.slice(0, 500) })
+          .then(res => setRelatedQuestions(res.data))
+          .catch(() => {});
+      }
 
     } catch (err) {
       console.error(err);
@@ -225,7 +319,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
     } finally {
       setIsSearching(false);
     }
-  }, [query, isSearching, conversationId, targetLang, focusMode, aiProvider, providers, setConversationId, setSources, setInsights]);
+  }, [query, isSearching, conversationId, targetLang, focusMode, aiProvider, providers, freeMode, handleFreeSearch, setConversationId, setSources, setInsights]);
 
   // Expose handleSearch for prefill
   useEffect(() => {
@@ -239,6 +333,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
   };
 
   const handleFeedback = (index, type, query) => {
+    if (freeMode) { setFeedbackMap(prev => ({ ...prev, [index]: type })); return; }
     setFeedbackMap(prev => ({ ...prev, [index]: type }));
     axios.post(`${API_BASE}/feedback`, { 
       query: query || '', 
@@ -248,7 +343,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
   };
 
   const handleExport = (format) => {
-    if (!conversationId) return;
+    if (freeMode || !conversationId) return;
     setShowExportMenu(false);
     const url = `${API_BASE}/conversations/${conversationId}/export?format=${format}`;
     
@@ -332,6 +427,16 @@ export default function ChatView({ conversationId, setConversationId, setInsight
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.15rem', marginTop: '12px' }}>
             Agentic Intelligence &bull; Deep Research &bull; 29 Languages
           </p>
+          {freeMode && (
+            <div style={{ display: 'inline-block', marginTop: '14px', fontSize: '0.85rem', color: '#4ade80', border: '1px solid rgba(74,222,128,0.4)', borderRadius: '20px', padding: '6px 16px', background: 'rgba(74,222,128,0.08)' }}>
+              🌟 Free mode — instant answers via Pollinations, no API key needed
+            </div>
+          )}
+          {!freeMode && providers.length > 0 && (
+            <div style={{ display: 'inline-block', marginTop: '14px', fontSize: '0.85rem', color: 'var(--accent-color)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '6px 16px', background: 'var(--bg-secondary)' }}>
+              ⚡ Pro backend live — {providers.length} AI providers with auto-failover
+            </div>
+          )}
 
           {/* Focus Mode Chips */}
           <div className="focus-mode-bar" style={{ justifyContent: 'center', marginTop: '32px' }}>
@@ -441,7 +546,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
             ) : (
               <div>
                 <div className="summary-card">
-                  {renderWithCitations(m.content, [])}
+                  {renderWithCitations(m.content, sources || [])}
                 </div>
                 {/* Response Actions */}
                 <div className="response-actions">
