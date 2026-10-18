@@ -1,0 +1,18 @@
+# Render Blueprint — Omni Search V4 Backend
+# Deploy via: Render Dashboard → New → Blueprint → connect repo → this file
+# Or: https://render.com/deploy?repo=<your-repo-url>
+services:
+  - type: web
+    name: omni-search-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 8000
+      # Optional: enables the Gemini fallback tier in the Sentinel provider.
+      # The backend works without any key (falls back to free g4f providers).
+      - key: GEMINI_API_KEY
+        sync: false
