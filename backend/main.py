@@ -50,6 +50,7 @@ class SearchRequest(BaseModel):
     target_lang: str = "en"
     conversation_id: Optional[int] = None
     focus_mode: str = "general"  # academic, news, code, general
+    provider: Optional[str] = None  # AI provider id, or None for auto-failover
 
 class FeedbackRequest(BaseModel):
     query: str
@@ -68,6 +69,11 @@ async def root():
 async def get_languages():
     """Returns all supported languages with metadata."""
     return translator_manager.get_supported_languages()
+
+@app.get("/providers")
+async def get_providers():
+    """Returns AI providers with availability (keyless vs key-configured)."""
+    return sentinel.list_providers()
 
 @app.get("/conversations")
 async def list_conversations(db: Session = Depends(get_db)):
@@ -344,7 +350,9 @@ INSTRUCTIONS:
 - End with a brief "Key Takeaway" section.
 """
             
-            async for chunk in sentinel.generate_stream_response([{"role": "user", "content": summary_prompt}]):
+            async for chunk in sentinel.generate_stream_response(
+                    [{"role": "user", "content": summary_prompt}],
+                    provider=request.provider):
                 chunk_str = chunk
                 if request.target_lang != "en":
                     chunk_str = await translator_manager.translate_to_target(chunk, request.target_lang)
