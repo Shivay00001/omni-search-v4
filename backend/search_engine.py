@@ -49,12 +49,76 @@ async def search_single(query: str, max_results: int = 5):
                         results.append({
                             "title": title_tag.get_text().strip(),
                             "url": clean_url,
-                            "snippet": snippet_tag.get_text().strip() if snippet_tag else ""
+                            "snippet": snippet_tag.get_text().strip() if snippet_tag else "",
+                            "provider": "ddg_html",
                         })
             else:
                 print(f"Manual Search Blocked: {response.status_code}")
     except Exception as e:
         print(f"Manual search error for '{query}': {e}")
+    return results
+
+async def search_ddg_instant(query: str, max_results: int = 5):
+    """
+    DuckDuckGo Instant Answer API backend (api.duckduckgo.com).
+    Official JSON API — no key required, works where HTML scraping is blocked.
+    Returns instant answer + related topics in the standard result format.
+    """
+    results = []
+    url = "https://api.duckduckgo.com/"
+    params = {
+        "q": query,
+        "format": "json",
+        "no_html": 1,
+        "skip_disambig": 1,
+    }
+    headers = {
+        "User-Agent": "OmniSearch/4.0 (VisionQuantech; +https://apps.visionquantech.com/omni-search/)",
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15) as client:
+            response = await client.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                # 1. Instant answer abstract as top result
+                abstract = (data.get("AbstractText") or "").strip()
+                abstract_url = (data.get("AbstractURL") or "").strip()
+                abstract_src = (data.get("AbstractSource") or "").strip()
+                if abstract and abstract_url:
+                    results.append({
+                        "title": f"{query} — {abstract_src}" if abstract_src else query,
+                        "url": abstract_url,
+                        "snippet": abstract[:500],
+                        "provider": "ddg_instant",
+                    })
+                # 2. Related topics as additional results
+                for topic in data.get("RelatedTopics", []):
+                    if len(results) >= max_results:
+                        break
+                    # RelatedTopics may contain nested "Topics" groups
+                    subtopics = topic.get("Topics") if isinstance(topic, dict) else None
+                    items = subtopics if subtopics else [topic]
+                    for item in items:
+                        if len(results) >= max_results:
+                            break
+                        if not isinstance(item, dict):
+                            continue
+                        text = (item.get("Text") or "").strip()
+                        first_url = (item.get("FirstURL") or "").strip()
+                        if text and first_url:
+                            # Title = first sentence-ish, snippet = full text
+                            title = text.split(" - ")[0].strip()[:120] or text[:120]
+                            results.append({
+                                "title": title,
+                                "url": first_url,
+                                "snippet": text[:500],
+                                "provider": "ddg_instant",
+                            })
+            else:
+                print(f"DDG Instant API blocked: {response.status_code}")
+    except Exception as e:
+        print(f"DDG Instant API error for '{query}': {e}")
     return results
 
 async def apply_rl_feedback(results: list):
@@ -95,10 +159,12 @@ def rerank_results(query: str, results: list, top_k: int = 5):
 
 async def search_web(query: str, max_results: int = 5, multilingual: bool = True):
     """
-    Industry-Grade Search:
+    Industry-Grade Multi-Provider Search:
     1. Check Cache
     2. Translates query to English (Global Data).
-    3. Performs parallel manual searches.
+    3. Runs providers in parallel:
+       - DDG HTML scraping (search_single) — rich web results
+       - DDG Instant Answer API (search_ddg_instant) — official API, resilient
     4. Deduplicates, Reranks, and merges results.
     """
     cache_key = f"{query}_{multilingual}_{max_results}"
@@ -109,28 +175,33 @@ async def search_web(query: str, max_results: int = 5, multilingual: bool = True
             return cached_val
 
     queries = [query]
-    
+
     if multilingual:
         # Translate to English for global reach
         en_query = await translator_manager.translate_to_en(query)
         if en_query.lower() != query.lower():
             queries.append(en_query)
-            
-    # Parallel search tasks
-    tasks = [search_single(q, max_results=max_results) for q in queries]
+
+    # Parallel multi-provider search tasks
+    tasks = []
+    for q in queries:
+        tasks.append(search_single(q, max_results=max_results))       # Provider 1: DDG HTML
+        tasks.append(search_ddg_instant(q, max_results=max_results))   # Provider 2: DDG Instant API
     search_responses = await asyncio.gather(*tasks)
-    
+
     # Flatten and Deduplicate by URL
     all_results = []
     seen_urls = set()
-    
+
     for resp in search_responses:
         for item in resp:
             if item["url"] not in seen_urls:
-                all_results.append(item)
                 seen_urls.add(item["url"])
-                
-    print(f"Manual search found {len(all_results)} raw results.")
+                all_results.append(item)
+
+    n_html = sum(1 for r in all_results if r.get("provider") != "ddg_instant")
+    n_instant = sum(1 for r in all_results if r.get("provider") == "ddg_instant")
+    print(f"Multi-provider search: {n_html} HTML results + {n_instant} Instant API results = {len(all_results)} total.")
     
     # Reranking
     all_results = rerank_results(query, all_results)
