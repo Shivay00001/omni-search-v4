@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Compass, Sparkles } from 'lucide-react';
 
-const API_BASE = 'http://127.0.0.1:8089';
+const API_BASE = (typeof window !== 'undefined' && window.__OMNI_API_BASE__) || 'https://omni-api.visionquantech.com';
 
 export default function Discover({ onSelectTopic }) {
   const [topics, setTopics] = useState([]);
