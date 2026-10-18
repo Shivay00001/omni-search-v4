@@ -5,11 +5,17 @@ Provider chain (free/no-key first, then key-based):
   1. pollinations  — keyless POST       (https://text.pollinations.ai)
   2. g4f-gpt4      — keyless via g4f package
   3. g4f-gpt35     — keyless via g4f package
-  4. puter         — needs PUTER_API_TOKEN (https://api.puter.com/puterai/openai/v1/)
-  5. groq          — needs GROQ_API_KEY (https://api.groq.com/openai/v1/)
-  6. openrouter    — needs OPENROUTER_API_KEY (https://openrouter.ai/api/v1/)
-  7. llm7          — needs LLM7_API_KEY (https://api.llm7.io/v1/)
-  8. gemini        — needs GEMINI_API_KEY (google-generativeai SDK)
+  4. deepseek      — needs DEEPSEEK_API_KEY (https://api.deepseek.com/v1/) — V4.1-Flash
+  5. unorouter     — needs UNOROUTER_API_KEY (https://api.unorouter.com/v1/) — GLM 5.3 free
+  6. openrouter-nemotron — needs OPENROUTER_API_KEY — nvidia/nemotron-3.5-super-vl:free
+  7. openrouter    — needs OPENROUTER_API_KEY (https://openrouter.ai/api/v1/)
+  8. openrouter-glm53    — needs OPENROUTER_API_KEY — z-ai/glm-5.3-flash
+  9. openrouter-qwen38   — needs OPENROUTER_API_KEY — qwen/qwen3.8-flash
+ 10. puter         — needs PUTER_API_TOKEN (https://api.puter.com/puterai/openai/v1/)
+ 11. groq          — needs GROQ_API_KEY (https://api.groq.com/openai/v1/)
+ 12. llm7          — needs LLM7_API_KEY (https://api.llm7.io/v1/)
+ 13. gemini        — needs GEMINI_API_KEY (google-generativeai SDK) — Gemini 3.8 Flash
+  (opt-in only) openrouter-musespark — RESEARCH ONLY (license has revenue clause)
 
 Each successful response is tagged with its provider id so the frontend
 can display it. Streaming yields a `__PROVIDER__:<id>` marker first,
@@ -19,8 +25,10 @@ Env vars (all optional except as noted):
   PUTER_API_TOKEN, PUTER_MODEL (default: gpt-5.4-nano)
   GROQ_API_KEY, GROQ_MODEL (default: llama-3.3-70b-versatile)
   OPENROUTER_API_KEY, OPENROUTER_MODEL (default: meta-llama/llama-3.3-70b-instruct:free)
-  GEMINI_API_KEY
+  GEMINI_API_KEY, GEMINI_MODEL (default: gemini-3.8-flash)
   LLM7_API_KEY, LLM7_MODEL (default: gemini-3.1-flash-lite)
+  DEEPSEEK_API_KEY, DEEPSEEK_MODEL (default: deepseek-flash — DeepSeek V4.1-Flash-1017)
+  UNOROUTER_API_KEY, UNOROUTER_MODEL (default: glm-5.3:free)
   POLLINATIONS_MODEL (default: openai)
 """
 import os
@@ -52,16 +60,28 @@ PROVIDERS: List[Dict] = [
      "needs_key": False, "env_key": None},
     {"id": "g4f-gpt35", "label": "GPT-3.5 (g4f)", "note": "Free, no key",
      "needs_key": False, "env_key": None},
+    {"id": "deepseek", "label": "DeepSeek V4.1-Flash", "note": "Needs DEEPSEEK_API_KEY (free trial credits for new accounts)",
+     "needs_key": True, "env_key": "DEEPSEEK_API_KEY"},
+    {"id": "unorouter", "label": "UnoRouter (GLM 5.3 free)", "note": "Needs UNOROUTER_API_KEY (free, ~1 req/min)",
+     "needs_key": True, "env_key": "UNOROUTER_API_KEY"},
+    {"id": "openrouter-nemotron", "label": "Nemotron 3.5 (free)", "note": "Needs OPENROUTER_API_KEY — nvidia/nemotron-3.5-super-vl:free",
+     "needs_key": True, "env_key": "OPENROUTER_API_KEY"},
+    {"id": "openrouter", "label": "OpenRouter", "note": "Needs OPENROUTER_API_KEY",
+     "needs_key": True, "env_key": "OPENROUTER_API_KEY"},
+    {"id": "openrouter-glm53", "label": "GLM 5.3 Flash", "note": "Needs OPENROUTER_API_KEY — z-ai/glm-5.3-flash (cheap, 1M ctx)",
+     "needs_key": True, "env_key": "OPENROUTER_API_KEY"},
+    {"id": "openrouter-qwen38", "label": "Qwen3.8 Flash", "note": "Needs OPENROUTER_API_KEY — qwen/qwen3.8-flash (cheap, 1M ctx)",
+     "needs_key": True, "env_key": "OPENROUTER_API_KEY"},
     {"id": "puter", "label": "Puter", "note": "Needs PUTER_API_TOKEN",
      "needs_key": True, "env_key": "PUTER_API_TOKEN"},
     {"id": "groq", "label": "Groq", "note": "Needs GROQ_API_KEY (free tier)",
      "needs_key": True, "env_key": "GROQ_API_KEY"},
-    {"id": "openrouter", "label": "OpenRouter", "note": "Needs OPENROUTER_API_KEY",
-     "needs_key": True, "env_key": "OPENROUTER_API_KEY"},
     {"id": "llm7", "label": "LLM7", "note": "Needs LLM7_API_KEY (free at dash.llm7.io)",
      "needs_key": True, "env_key": "LLM7_API_KEY"},
-    {"id": "gemini", "label": "Gemini", "note": "Needs GEMINI_API_KEY (free tier)",
+    {"id": "gemini", "label": "Gemini", "note": "Needs GEMINI_API_KEY (free tier AI Studio)",
      "needs_key": True, "env_key": "GEMINI_API_KEY"},
+    {"id": "openrouter-musespark", "label": "Muse Spark (research)", "note": "RESEARCH ONLY — license has revenue clause. Needs OPENROUTER_API_KEY",
+     "needs_key": True, "env_key": "OPENROUTER_API_KEY", "auto_chain": False},
 ]
 
 
@@ -114,10 +134,15 @@ class SentinelProvider:
         self.llm7_model = os.getenv("LLM7_MODEL", "gemini-3.1-flash-lite")
         self.pollinations_model = os.getenv("POLLINATIONS_MODEL", "openai")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.gemini_model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+        self.deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-flash")
+        self.unorouter_key = os.getenv("UNOROUTER_API_KEY")
+        self.unorouter_model = os.getenv("UNOROUTER_MODEL", "glm-5.3:free")
 
         if self.gemini_api_key and _HAS_GENAI:
             genai.configure(api_key=self.gemini_api_key)
-            self.gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+            self.gemini_model = genai.GenerativeModel(self.gemini_model_name)
         else:
             self.gemini_model = None
 
@@ -149,9 +174,11 @@ class SentinelProvider:
             if only not in ids:
                 raise ValueError(f"Unknown provider: {only}")
             return [only]
-        # Skip key-based providers whose key is missing
+        # Skip key-based providers whose key is missing, and providers
+        # flagged auto_chain=False (opt-in only, e.g. license-restricted)
         avail = {p["id"] for p in self.list_providers() if p["available"]}
-        return [i for i in ids if i in avail]
+        auto = {p["id"] for p in PROVIDERS if p.get("auto_chain", True)}
+        return [i for i in ids if i in avail and i in auto]
 
     # ------------------------------------------------------------------
     # Individual provider implementations (each returns full text)
@@ -201,12 +228,35 @@ class SentinelProvider:
         return await _post_openai_compatible(url, headers, payload)
 
     async def _openrouter(self, messages: List[Dict]) -> str:
+        return await self._openrouter_with_model(messages, self.openrouter_model)
+
+    def _or_headers(self) -> Dict:
+        """Shared headers for all OpenRouter-backed providers."""
+        return {"Content-Type": "application/json",
+                "Authorization": f"Bearer {self.openrouter_key}",
+                "HTTP-Referer": "https://apps.visionquantech.com/omni-search/",
+                "X-Title": "Omni Search v4"}
+
+    async def _openrouter_with_model(self, messages: List[Dict], model: str) -> str:
+        """OpenRouter chat completion pinned to a specific model id."""
         url = "https://openrouter.ai/api/v1/chat/completions"
+        payload = {"model": model, "messages": messages}
+        return await _post_openai_compatible(url, self._or_headers(), payload)
+
+    async def _deepseek(self, messages: List[Dict]) -> str:
+        """DeepSeek V4.1-Flash (served as `deepseek-flash` on api.deepseek.com)."""
+        url = "https://api.deepseek.com/v1/chat/completions"
         headers = {"Content-Type": "application/json",
-                   "Authorization": f"Bearer {self.openrouter_key}",
-                   "HTTP-Referer": "https://apps.visionquantech.com/omni-search/",
-                   "X-Title": "Omni Search v4"}
-        payload = {"model": self.openrouter_model, "messages": messages}
+                   "Authorization": f"Bearer {self.deepseek_key}"}
+        payload = {"model": self.deepseek_model, "messages": messages}
+        return await _post_openai_compatible(url, headers, payload)
+
+    async def _unorouter(self, messages: List[Dict]) -> str:
+        """UnoRouter free lane (default: GLM 5.3 free, 1M ctx, ~1 req/min)."""
+        url = "https://api.unorouter.com/v1/chat/completions"
+        headers = {"Content-Type": "application/json",
+                   "Authorization": f"Bearer {self.unorouter_key}"}
+        payload = {"model": self.unorouter_model, "messages": messages}
         return await _post_openai_compatible(url, headers, payload)
 
     async def _gemini(self, messages: List[Dict]) -> str:
@@ -234,8 +284,24 @@ class SentinelProvider:
             return await self._puter(messages)
         if provider_id == "groq":
             return await self._groq(messages)
+        if provider_id == "deepseek":
+            return await self._deepseek(messages)
+        if provider_id == "unorouter":
+            return await self._unorouter(messages)
+        if provider_id == "openrouter-nemotron":
+            return await self._openrouter_with_model(
+                messages, "nvidia/nemotron-3.5-super-vl:free")
         if provider_id == "openrouter":
             return await self._openrouter(messages)
+        if provider_id == "openrouter-glm53":
+            return await self._openrouter_with_model(
+                messages, "z-ai/glm-5.3-flash")
+        if provider_id == "openrouter-qwen38":
+            return await self._openrouter_with_model(
+                messages, "qwen/qwen3.8-flash")
+        if provider_id == "openrouter-musespark":
+            return await self._openrouter_with_model(
+                messages, "meta/muse-spark-open")
         if provider_id == "gemini":
             return await self._gemini(messages)
         raise ValueError(f"Unknown provider: {provider_id}")
@@ -243,10 +309,28 @@ class SentinelProvider:
     # ------------------------------------------------------------------
     # Streaming variants — yield small chunks for a live feel
     # ------------------------------------------------------------------
-    async def _stream_once(self, provider_id: str, messages: List[Dict]):
-        """Yield chunks from one provider. Tries SSE first, falls back to
-        full-text split into chunks."""
-        sse_providers = {
+    def _sse_config(self, provider_id: str):
+        """Return (url, headers, model) for SSE-capable OpenAI-compatible
+        providers, else None."""
+        or_url = "https://openrouter.ai/api/v1/chat/completions"
+        cfgs = {
+            "deepseek": ("https://api.deepseek.com/v1/chat/completions",
+                         {"Content-Type": "application/json",
+                          "Authorization": f"Bearer {self.deepseek_key}"},
+                         self.deepseek_model),
+            "unorouter": ("https://api.unorouter.com/v1/chat/completions",
+                          {"Content-Type": "application/json",
+                           "Authorization": f"Bearer {self.unorouter_key}"},
+                          self.unorouter_model),
+            "openrouter-nemotron": (or_url, self._or_headers(),
+                                    "nvidia/nemotron-3.5-super-vl:free"),
+            "openrouter": (or_url, self._or_headers(), self.openrouter_model),
+            "openrouter-glm53": (or_url, self._or_headers(),
+                                 "z-ai/glm-5.3-flash"),
+            "openrouter-qwen38": (or_url, self._or_headers(),
+                                  "qwen/qwen3.8-flash"),
+            "openrouter-musespark": (or_url, self._or_headers(),
+                                     "meta/muse-spark-open"),
             "llm7": ("https://api.llm7.io/v1/chat/completions",
                      {"Content-Type": "application/json",
                       "Authorization": f"Bearer {self.llm7_key}"},
@@ -259,15 +343,15 @@ class SentinelProvider:
                      {"Content-Type": "application/json",
                       "Authorization": f"Bearer {self.groq_key}"},
                      self.groq_model),
-            "openrouter": ("https://openrouter.ai/api/v1/chat/completions",
-                           {"Content-Type": "application/json",
-                            "Authorization": f"Bearer {self.openrouter_key}",
-                            "HTTP-Referer": "https://apps.visionquantech.com/omni-search/",
-                            "X-Title": "Omni Search v4"},
-                           self.openrouter_model),
         }
-        if provider_id in sse_providers:
-            url, headers, model = sse_providers[provider_id]
+        return cfgs.get(provider_id)
+
+    async def _stream_once(self, provider_id: str, messages: List[Dict]):
+        """Yield chunks from one provider. Tries SSE first, falls back to
+        full-text split into chunks."""
+        cfg = self._sse_config(provider_id)
+        if cfg is not None:
+            url, headers, model = cfg
             payload = {"model": model, "messages": messages, "stream": True}
             got_any = False
             async for chunk in _stream_openai_compatible(url, headers, payload):
