@@ -10,7 +10,7 @@ import {
   Sparkles, ArrowRight
 } from 'lucide-react';
 
-const API_BASE = 'http://127.0.0.1:8089';
+const API_BASE = (typeof window !== 'undefined' && window.__OMNI_API_BASE__) || 'https://omni-api.visionquantech.com';
 
 const FOCUS_MODES = [
   { id: 'general', label: 'General', icon: <Compass size={14} />, emoji: '🌐' },
