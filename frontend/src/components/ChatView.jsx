@@ -28,6 +28,9 @@ export default function ChatView({ conversationId, setConversationId, setInsight
   const [targetLang, setTargetLang] = useState('en');
   const [focusMode, setFocusMode] = useState('general');
   const [languages, setLanguages] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [aiProvider, setAiProvider] = useState(''); // '' = auto-failover
+  const [activeProvider, setActiveProvider] = useState(null); // provider answering current/last query
   const [relatedQuestions, setRelatedQuestions] = useState([]);
   const [feedbackMap, setFeedbackMap] = useState({});
   const [copiedIndex, setCopiedIndex] = useState(null);
@@ -44,6 +47,21 @@ export default function ChatView({ conversationId, setConversationId, setInsight
           { code: 'en', name: 'English', native: 'English', flag: '🇺🇸' },
           { code: 'hi', name: 'Hindi', native: 'हिन्दी', flag: '🇮🇳' },
           { code: 'es', name: 'Spanish', native: 'Español', flag: '🇪🇸' },
+        ]);
+      });
+  }, []);
+
+  // Fetch AI providers on mount
+  useEffect(() => {
+    axios.get(`${API_BASE}/providers`)
+      .then(res => setProviders(res.data))
+      .catch(() => {
+        // Fallback list if backend unreachable — keyless providers first
+        setProviders([
+          { id: 'pollinations', label: 'Pollinations', note: 'Free, no key', available: true },
+          { id: 'llm7', label: 'LLM7', note: 'Free, no key', available: true },
+          { id: 'g4f-gpt4', label: 'GPT-4 (g4f)', note: 'Free, no key', available: true },
+          { id: 'g4f-gpt35', label: 'GPT-3.5 (g4f)', note: 'Free, no key', available: true },
         ]);
       });
   }, []);
@@ -88,6 +106,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
     setCurrentSummary('');
     setResearchSteps([]);
     setRelatedQuestions([]);
+    setActiveProvider(null);
     
     setMessages(prev => [...prev, { role: 'user', content: userQuery }]);
 
@@ -105,7 +124,8 @@ export default function ChatView({ conversationId, setConversationId, setInsight
           conversation_id: conversationId, 
           stream: true,
           target_lang: targetLang,
-          focus_mode: focusMode
+          focus_mode: focusMode,
+          provider: aiProvider || null
         })
       });
 
@@ -168,6 +188,16 @@ export default function ChatView({ conversationId, setConversationId, setInsight
           } else break;
         }
 
+        while (buffer.includes('__PROVIDER__:')) {
+          const match = buffer.match(/__PROVIDER__:(.*?)\n/);
+          if (match) {
+            const pid = match[1].trim();
+            const meta = providers.find(p => p.id === pid);
+            setActiveProvider(meta ? meta.label : pid);
+            buffer = buffer.replace(match[0], '');
+          } else break;
+        }
+
         // Summary content
         const lines = buffer.split('\n');
         buffer = lines.pop();
@@ -195,7 +225,7 @@ export default function ChatView({ conversationId, setConversationId, setInsight
     } finally {
       setIsSearching(false);
     }
-  }, [query, isSearching, conversationId, targetLang, focusMode, setConversationId, setSources, setInsights]);
+  }, [query, isSearching, conversationId, targetLang, focusMode, aiProvider, providers, setConversationId, setSources, setInsights]);
 
   // Expose handleSearch for prefill
   useEffect(() => {
@@ -371,6 +401,34 @@ export default function ChatView({ conversationId, setConversationId, setInsight
               </option>
             ))}
           </select>
+
+          {/* AI Provider */}
+          <select
+            value={aiProvider}
+            onChange={(e) => setAiProvider(e.target.value)}
+            className="lang-select"
+            title="AI provider — Auto tries free providers with failover"
+          >
+            <option value="">⚡ Auto (failover)</option>
+            {providers.map(p => (
+              <option key={p.id} value={p.id} disabled={!p.available}>
+                {p.available ? '●' : '○'} {p.label}{p.needs_key && !p.available ? ' (needs key)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Active provider badge */}
+      {activeProvider && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px' }}>
+          <span style={{
+            fontSize: '0.75rem', color: 'var(--text-secondary)',
+            border: '1px solid var(--border-color)', borderRadius: '20px',
+            padding: '3px 12px', background: 'var(--bg-secondary)'
+          }}>
+            🤖 Answered by {activeProvider}
+          </span>
         </div>
       )}
 
