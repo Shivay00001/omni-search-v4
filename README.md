@@ -65,3 +65,10 @@ Omni Search is a production-grade, agentic intelligence search platform designed
 Distributed under the MIT License. See `LICENSE` for more information.
 
 Developed with ❤️ by **Shivay**
+
+## Built by VisionQuantech
+
+This project is built by [VisionQuantech](https://visionquantech.com/) — AI agents, websites & SEO for small business.
+
+Related guides:
+- [small business automation tools](https://visionquantech.com/blog/small-business-automation-tools.html)
